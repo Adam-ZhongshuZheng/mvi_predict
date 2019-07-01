@@ -59,15 +59,15 @@ def data_prepare(loadmode):
     readpath = os.path.join('data_flods', 'flod' + str(flod))
 
 
-    trainset = MVIClassifyLoader(os.path.join(readpath, 'train_datafile.csv'), transform=transform_train, mode=loadmode)
+    trainset = MVIClassifyLoader(os.path.join(readpath, 'train_set.csv'), transform=transform_train, mode=loadmode)
     # trainloader = torch.utils.data.DataLoader(trainset, batch_size=5, shuffle=True, num_workers=1)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
 
-    valiset = MVIClassifyLoader(os.path.join(readpath, 'vali_datafile.csv'), transform=transform_test, mode=loadmode)
+    valiset = MVIClassifyLoader(os.path.join(readpath, 'vali_set.csv'), transform=transform_test, mode=loadmode)
     # testloader = torch.utils.data.DataLoader(testset, batch_size=5, shuffle=False, num_workers=1)
     valiloader = torch.utils.data.DataLoader(valiset, batch_size=args.batch_size, shuffle=False)
 
-    testset = MVIClassifyLoader(os.path.join(readpath, 'test_datafile.csv'), transform=transform_test, mode=loadmode)
+    testset = MVIClassifyLoader(os.path.join(readpath, 'test_set.csv'), transform=transform_test, mode=loadmode)
     # testloader = torch.utils.data.DataLoader(testset, batch_size=5, shuffle=False, num_workers=1)
     testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False)
 
@@ -215,21 +215,21 @@ def test(epoch, dataloader, net, optimizer, criterion, mode, vali=True):
                 targets = targets.to(device, dtype=torch.uint8)
                 outputs = net(inputs_a, inputs_d, inputs_p, inputs_g)  # one_hot_targets = make_one_hot(targets, 2)
 
-                # one_hot_targets = one_hot_for_class(targets, 2)
-                loss = criterion(outputs, targets.long())
+            # one_hot_targets = one_hot_for_class(targets, 2)
+            loss = criterion(outputs, targets.long())
 
-                test_loss += loss.item()
-                _, predicted = outputs.max(1)
-                # _, targets = one_hot_targets.max(1)
-                total += targets.size(0)
-                correct += predicted.byte().eq(targets).sum().item()
+            test_loss += loss.item()
+            _, predicted = outputs.max(1)
+            # _, targets = one_hot_targets.max(1)
+            total += targets.size(0)
+            correct += predicted.byte().eq(targets).sum().item()
 
-                # temp = predicted + targets
-                # intersection = (temp == 2).sum().item()
-                # union = (temp > 0).sum().item()
+            # temp = predicted + targets
+            # intersection = (temp == 2).sum().item()
+            # union = (temp > 0).sum().item()
 
-                progress_bar(batch_idx, len(dataloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                             % (test_loss / (batch_idx + 1), 100. * correct / total, correct, total))
+            progress_bar(batch_idx, len(dataloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
+                         % (test_loss / (batch_idx + 1), 100. * correct / total, correct, total))
 
     # Save the best model till now.
     if vali is True:
