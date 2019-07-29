@@ -15,7 +15,7 @@ import argparse
 
 from utils import progress_bar
 from data_loader import MVIClassifyLoader
-from model import USNETres, ClassifyNet, MVIBigNet, GroupFeatureNet
+from model import USNETres, ClassifyNet, MVIBigNet, GroupFeatureNet, get_USNE
 
 import pdb
 
@@ -58,20 +58,34 @@ def data_prepare(loadmode):
 
     readpath = os.path.join('data_flods', 'flod' + str(flod))
 
+    train_set = MVIClassifyLoader(os.path.join(readpath, 'train_set.csv'), transform=transform_train, mode=loadmode)
+    valid_set = MVIClassifyLoader(os.path.join(readpath, 'valid_set.csv'), transform=transform_test, mode=loadmode)
+    test_set = MVIClassifyLoader(os.path.join(readpath, 'test_set.csv'), transform=transform_test, mode=loadmode)
 
-    trainset = MVIClassifyLoader(os.path.join(readpath, 'train_set.csv'), transform=transform_train, mode=loadmode)
-    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=5, shuffle=True, num_workers=1)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True)
+    trainloader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
+    validloader = torch.utils.data.DataLoader(valid_set, batch_size=args.batch_size, shuffle=True)
+    testloader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size, shuffle=True)
 
-    valiset = MVIClassifyLoader(os.path.join(readpath, 'vali_set.csv'), transform=transform_test, mode=loadmode)
-    # testloader = torch.utils.data.DataLoader(testset, batch_size=5, shuffle=False, num_workers=1)
-    valiloader = torch.utils.data.DataLoader(valiset, batch_size=args.batch_size, shuffle=False)
+    # # To get shuffled dataset
+    # dataset = MVIClassifyLoader(os.path.join(readpath, 'filelist.csv'), transform=transform_train, mode=loadmode)
+    # dataset_test = MVIClassifyLoader(os.path.join(readpath, 'filelist.csv'), transform=transform_test, mode=loadmode)
 
-    testset = MVIClassifyLoader(os.path.join(readpath, 'test_set.csv'), transform=transform_test, mode=loadmode)
-    # testloader = torch.utils.data.DataLoader(testset, batch_size=5, shuffle=False, num_workers=1)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False)
+    # valid_rate = [0.6, 0.8, 1.0]    # the valid and test part
 
-    return trainloader, valiloader, testloader
+    # indices = list(range(len(dataset)))
+    # split1 = int(np.floor(valid_rate[0] * len(dataset)))
+    # split2 = int(np.floor(valid_rate[1] * len(dataset)))
+    # np.random.shuffle(indices)
+    # train_idx, valid_idx, test_idx = indices[:split1], indices[split1: split2], indices[split2:]
+    # train_sampler = SubsetRandomSampler(train_idx)
+    # vali_sampler = SubsetRandomSampler(valid_idx)
+    # test_sampler = SubsetRandomSampler(test_idx)
+
+    # trainloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, shuffle=False)
+    # validloader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, sampler=vali_sampler, shuffle=False)
+    # testloader = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, sampler=test_sampler, shuffle=False)
+
+    return trainloader, validloader, testloader
 
 
 # Model
@@ -85,7 +99,7 @@ def model_prepare(mode):
     global start_epoch
 
     if mode in ['A', 'D', 'P']:
-        net = USNETres()
+        net = get_USNE()
     elif mode in ['G']:
         net = GroupFeatureNet()
     else:
@@ -116,7 +130,8 @@ def model_prepare(mode):
         net.feature_p.load_state_dict(checkpoint_p['net'])
         net.feature_g.load_state_dict(checkpoint_g['net'])
 
-    optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer = optim.Adam(net.parameters(), lr=args.lr)
+    torch.optim.lr_scheduler.StepLR(optimizer, 50, gamma=0.1, last_epoch=-1)
     criterion = nn.CrossEntropyLoss()
 
     # print('==> parameters to train:')
@@ -139,6 +154,7 @@ def train(epoch, dataloader, net, optimizer, criterion, mode):
 #         pdb.set_trace()
 
         if mode in ['A', 'D', 'P']:
+            sid = databook['id']
             inputs = databook['img']
             targets = databook['mvi']
             inputs = inputs.to(device, dtype=torch.float)
@@ -189,10 +205,12 @@ def test(epoch, dataloader, net, optimizer, criterion, mode, vali=True):
     test_loss = 0
     correct = 0
     total = 0
+    wrong_list = []     # To get the wrong id
     with torch.no_grad():
         for batch_idx, databook in enumerate(dataloader):
 
             if mode in ['A', 'D', 'P']:
+                sid = databook['sid']
                 inputs = databook['img']
                 targets = databook['mvi']
                 inputs = inputs.to(device, dtype=torch.float)
@@ -224,6 +242,11 @@ def test(epoch, dataloader, net, optimizer, criterion, mode, vali=True):
             total += targets.size(0)
             correct += predicted.byte().eq(targets).sum().item()
 
+            # To get the wrong sample id list
+            for i in 1 - predicted.byte().eq(targets):
+                if i == 0 and sid[i] not in wrong_list:
+                    wrong_list.append(sid[i])
+
             # temp = predicted + targets
             # intersection = (temp == 2).sum().item()
             # union = (temp > 0).sum().item()
@@ -246,6 +269,18 @@ def test(epoch, dataloader, net, optimizer, criterion, mode, vali=True):
                 os.mkdir('checkpoint')
             torch.save(state, './checkpoint/ckpt_flod' + str(flod) + 'mode' + mode + '.t7')
             best_acc = acc
+
+            # Saving the wrong list
+            wrong_file = open('wrong_logs/wrong_list' + str(flod) + '.adm', 'a')
+            wrong_file.write('epoch:' + str(epoch) + ',acc:' + str(acc) + ',')
+            for i in range(len(wrong_list)):
+                wrong_file.write(str(wrong_list[i]))
+                if i != len(wrong_list):
+                    wrong_file.write(',')
+                else:
+                    wrong_file.write('\n')
+
+            wrong_file.close()
 
 
 if __name__ == '__main__':

@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 from layers import *
-import pdb
+
 config = {}
-config['anchors'] = [5., 10., 20.] #[ 10.0, 30.0, 60.]
+config['anchors'] = [5., 10., 20.]  # [ 10.0, 30.0, 60.]
 config['chanel'] = 1
 config['crop_size'] = [96, 96, 96]
 config['stride'] = 4
@@ -15,18 +15,20 @@ config['th_pos_val'] = 1
 config['num_hard'] = 2
 config['bound_size'] = 12
 config['reso'] = 1
-config['sizelim'] = 2.5 #3 #6. #mm
-config['sizelim2'] = 10 #30
-config['sizelim3'] = 20 #40
+config['sizelim'] = 2.5  # 3 #6. #mm
+config['sizelim2'] = 10  # 30
+config['sizelim3'] = 20  # 40
 config['aug_scale'] = True
 config['r_rand_crop'] = 0.3
 config['pad_value'] = 170
-config['augtype'] = {'flip':True,'swap':False,'scale':True,'rotate':False}
+config['augtype'] = {'flip': True, 'swap': False, 'scale': True, 'rotate': False}
 
-config['augtype'] = {'flip':True,'swap':False,'scale':True,'rotate':False}
-config['blacklist'] = ['868b024d9fa388b7ddab12ec1c06af38','990fbe3f0a1b53878669967b9afd1441','adc3bbc63d40f8761c59be10f1e504c3']
+config['augtype'] = {'flip': True, 'swap': False, 'scale': True, 'rotate': False}
+config['blacklist'] = ['868b024d9fa388b7ddab12ec1c06af38', '990fbe3f0a1b53878669967b9afd1441',
+                       'adc3bbc63d40f8761c59be10f1e504c3']
 
-#config['blacklist'] = ['868b024d9fa388b7ddab12ec1c06af38','d92998a73d4654a442e6d6ba15bbb827','990fbe3f0a1b53878669967b9afd1441','820245d8b211808bd18e78ff5be16fdb','adc3bbc63d40f8761c59be10f1e504c3',
+
+# config['blacklist'] = ['868b024d9fa388b7ddab12ec1c06af38','d92998a73d4654a442e6d6ba15bbb827','990fbe3f0a1b53878669967b9afd1441','820245d8b211808bd18e78ff5be16fdb','adc3bbc63d40f8761c59be10f1e504c3',
 #                       '417','077','188','876','057','087','130','468']
 
 
@@ -37,122 +39,110 @@ class USNETres(nn.Module):
         # Call these layers preBlock, i.e., before the residual blocks of later layers.
         self.featureget = featureget
         self.preBlock = nn.Sequential(
-            nn.Conv3d(1, 24, kernel_size = 3, padding = 1),
+            nn.Conv3d(1, 24, kernel_size=3, padding=1),
             nn.BatchNorm3d(24),
-            nn.ReLU(inplace = True),
-            nn.Conv3d(24, 24, kernel_size = 3, padding = 1),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(24, 24, kernel_size=3, padding=1),
             nn.BatchNorm3d(24),
-            nn.ReLU(inplace = True))
-        
+            nn.ReLU(inplace=True))
+
         # 3 poolings, each pooling downsamples the feature map by a factor 2.
         # 3 groups of blocks. The first block of each group has one pooling.
-        num_blocks_forw = [2,2,3,3]
-        self.featureNum_forw = [24,32,64,64,64]
+        num_blocks_forw = [2, 2, 3, 3]
+        self.featureNum_forw = [24, 32, 64, 64, 64]
 
-
-        for i in range(len(num_blocks_forw)): ### 4
+        for i in range(len(num_blocks_forw)):  ### 4
             blocks = []
-            for j in range(num_blocks_forw[i]): ##{2,2,3,3}
-                if j == 0: # conv
+            for j in range(num_blocks_forw[i]):  ##{2,2,3,3}
+                if j == 0:  # conv
                     ###plus source connection
                     blocks.append(PostRes(self.featureNum_forw[i] + 1, self.featureNum_forw[i + 1]))
                 else:
-                    blocks.append(PostRes(self.featureNum_forw[i+1], self.featureNum_forw[i+1]))
+                    blocks.append(PostRes(self.featureNum_forw[i + 1], self.featureNum_forw[i + 1]))
             setattr(self, 'forw' + str(i + 1), nn.Sequential(*blocks))
 
-        
-        
-#        num_blocks_back = [3,3,2,2]
-#        self.featureNum_back =   [64,64,32,24]
-#        for i in range(len(num_blocks_back)):
-#            blocks = []
-#            for j in range(num_blocks_back[i]):
-#                if j == 0:
-#                    blocks.append(PostRes(self.featureNum_back[i]+self.featureNum_forw[3-i], self.featureNum_forw[3-i]))
-#                else:
-#                    blocks.append(PostRes(self.featureNum_forw[3-i], self.featureNum_forw[3-i]))
-#            setattr(self, 'back' + str(3-i), nn.Sequential(*blocks))
+        # Just for transfer
+        num_blocks_back = [3, 3]
+        self.featureNum_back = [128, 64, 64]
+        for i in range(len(num_blocks_back)):
+            blocks = []
+            for j in range(num_blocks_back[i]):
+                if j == 0:
+                    if i == 0:
+                        addition = 3
+                    else:
+                        addition = 0
+                    blocks.append(PostRes(self.featureNum_back[i + 1] + self.featureNum_forw[i + 2] + addition,
+                                          self.featureNum_back[i]))
+                else:
+                    blocks.append(PostRes(self.featureNum_back[i], self.featureNum_back[i]))
+            setattr(self, 'back' + str(i + 2), nn.Sequential(*blocks))
+        ###########################
 
-        self.avgpool = nn.AvgPool3d(kernel_size=(1, 2, 2),stride=(1, 2, 2))
-        self.maxpool1 = nn.MaxPool3d(kernel_size=(1, 2, 2),stride=(1, 2, 2),return_indices =True)
-        self.maxpool2 = nn.MaxPool3d(kernel_size=(1, 2, 2),stride=(1, 2, 2),return_indices =True)
-        self.maxpool3 = nn.MaxPool3d(kernel_size=(1, 2, 2),stride=(1, 2, 2),return_indices =True)
-        self.maxpool4 = nn.MaxPool3d(kernel_size=(1, 2, 2),stride=(1, 2, 2),return_indices =True)
-        # self.unmaxpool1 = nn.MaxUnpool3d(kernel_size=2,stride=2)
-        # self.unmaxpool2 = nn.MaxUnpool3d(kernel_size=2,stride=2)
+        self.avgpool = nn.AvgPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2))
+        self.maxpool1 = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), return_indices=True)
+        self.maxpool2 = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), return_indices=True)
+        self.maxpool3 = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), return_indices=True)
+        self.maxpool4 = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), return_indices=True)
 
-        # self.path1 = nn.Sequential(
-        #     nn.ConvTranspose3d(64, 64, kernel_size = 2, stride = 2),
-        #     nn.BatchNorm3d(64),
-        #     nn.ReLU(inplace = True))
-        # self.path2 = nn.Sequential(
-        #     nn.ConvTranspose3d(64, 32, kernel_size = 2, stride = 2),
-        #     nn.BatchNorm3d(32),
-        #     nn.ReLU(inplace = True))
-        # self.path3 = nn.Sequential(
-        #     nn.ConvTranspose3d(32, 24, kernel_size = 2, stride = 2),
-        #     nn.BatchNorm3d(24),
-        #     nn.ReLU(inplace = True))
-        # self.path4 = nn.Sequential(
-        #     nn.ConvTranspose3d(24, 16, kernel_size = 2, stride = 2),
-        #     nn.BatchNorm3d(16),
-        #     nn.ReLU(inplace = True))
-        #                                                               # 64 4 8 8
-        self.postBlock = nn.Sequential(
-            nn.Conv3d(64, 32, kernel_size = 3,stride=2,padding = 1),	# 32 2 4 4
-            nn.BatchNorm3d(32),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(32, 8, kernel_size=3, stride=2, padding=1),    # 8 1 2 2
-            nn.BatchNorm3d(8),
-            nn.ReLU(inplace=True),
+        self.postBlock = []
+        self.classifiy = []
 
-            # nn.AvgPool3d(kernel_size=(1, 2, 2), stride=1)   		# Global Average Pooling ==> -1 8 1 2 2 ==> -1 8
-        )
-        self.classifiy = nn.Sequential(
-            nn.Linear(32, 2),
-            nn.Softmax()
-        )
-#        self.path5 = nn.Sequential(
-#            nn.ConvTranspose3d(24, 2, kernel_size = 2, stride = 2),
-#            nn.BatchNorm3d(2),
-#            nn.ReLU(inplace = True))
-        # self.drop = nn.Dropout3d(p = 0.5, inplace = False)
-        # self.output = nn.Sequential(nn.Conv3d(self.featureNum_back[0], 64, kernel_size = 1),
-        #                             nn.ReLU(),
-        #                             #nn.Dropout3d(p = 0.3),
-        #                            nn.Conv3d(64, 5 * len(config['anchors']), kernel_size = 1))
+        # Just for transfer
+        self.path1 = nn.Sequential(
+            nn.ConvTranspose3d(64, 64, kernel_size=2, stride=2),
+            nn.BatchNorm3d(64),
+            nn.ReLU(inplace=True))
+        self.path2 = nn.Sequential(
+            nn.ConvTranspose3d(64, 64, kernel_size=2, stride=2),
+            nn.BatchNorm3d(64),
+            nn.ReLU(inplace=True))
+        self.drop = nn.Dropout3d(p=0.5, inplace=False)
+        self.output = nn.Sequential(nn.Conv3d(self.featureNum_back[0], 64, kernel_size=1),
+                                    nn.ReLU(),
+                                    # nn.Dropout3d(p = 0.3),
+                                    nn.Conv3d(64, 5 * len(config['anchors']), kernel_size=1))
+
+
+    #        self.path5 = nn.Sequential(
+    #            nn.ConvTranspose3d(24, 2, kernel_size = 2, stride = 2),
+    #            nn.BatchNorm3d(2),
+    #            nn.ReLU(inplace = True))
+    # self.drop = nn.Dropout3d(p = 0.5, inplace = False)
+    # self.output = nn.Sequential(nn.Conv3d(self.featureNum_back[0], 64, kernel_size = 1),
+    #                             nn.ReLU(),
+    #                             #nn.Dropout3d(p = 0.3),
+    #                            nn.Conv3d(64, 5 * len(config['anchors']), kernel_size = 1))
 
     def forward(self, x):
         out = self.preBlock(x)  # 16     ### conv0: 1+1: conv3+conv3= conv5x5 [conv-bn-relu conv-bn-relu]
-        out_pool,indices0 = self.maxpool1(out)
+        out_pool, indices0 = self.maxpool1(out)
 
         source0 = self.avgpool(x)
         out_pool_s = torch.cat((out_pool, source0), 1)
 
-        out1 = self.forw1(out_pool_s)#32+1             #### conv1: ([conv3+conv3] + x )*2
-        out1_pool,indices1 = self.maxpool2(out1)
+        out1 = self.forw1(out_pool_s)  # 32+1             #### conv1: ([conv3+conv3] + x )*2
+        out1_pool, indices1 = self.maxpool2(out1)
 
         source1 = self.avgpool(source0)
         out1_pool_s = torch.cat((out1_pool, source1), 1)
 
-        out2 = self.forw2(out1_pool_s)#64 +1             #### conv2: ([conv3+conv3] + x )*2
-        #out2 = self.drop(out2)
-        out2_pool,indices2 = self.maxpool3(out2)
+        out2 = self.forw2(out1_pool_s)  # 64 +1             #### conv2: ([conv3+conv3] + x )*2
+        # out2 = self.drop(out2)
+        out2_pool, indices2 = self.maxpool3(out2)
 
-        source2= self.avgpool(source1)
-        out2_pool_s = torch.cat((out2_pool, source2),1)
+        source2 = self.avgpool(source1)
+        out2_pool_s = torch.cat((out2_pool, source2), 1)
 
-        out3 = self.forw3(out2_pool_s)#96  +1            #### conv3: ([conv3+conv3] + x )*3
-        out3_pool,indices3 = self.maxpool4(out3)
+        out3 = self.forw3(out2_pool_s)  # 96  +1            #### conv3: ([conv3+conv3] + x )*3
+        out3_pool, indices3 = self.maxpool4(out3)
 
         source3 = self.avgpool(source2)
         out3_pool_s = torch.cat((out3_pool, source3), 1)
-        
-        
-        out4 = self.forw4(out3_pool_s)#96     +1         #### conv4: (([conv3+conv3] + x )*3    2*64*8*8	
-        # now: 64*1*16*16
-        #out4 = self.drop(out4)
 
+        out4 = self.forw4(out3_pool_s)  # 96     +1         #### conv4: (([conv3+conv3] + x )*3    2*64*8*8
+        # now: 64*1*16*16
+        # out4 = self.drop(out4)
 
         # add4=out4+out3_pool
         # rev3 = self.path1(add4)
@@ -161,7 +151,7 @@ class USNETres(nn.Module):
         # #comb3 = self.drop(comb3)
         # add3=rev3+out2_pool
         # rev2 = self.path2(add3)
-        
+
         # # comb2 = self.back2(torch.cat((rev2, out2), 1))#24+24
         # add2=rev2+out1_pool
         # rev1=self.path3(add2)
@@ -227,9 +217,9 @@ class MVIBigNet(nn.Module):
 
     def __init__(self):
         super(MVIBigNet, self).__init__()
-        self.feature_a = USNETres(featureget=True)
-        self.feature_d = USNETres(featureget=True)
-        self.feature_p = USNETres(featureget=True)
+        self.feature_a = get_USNE(featureget=True)
+        self.feature_d = get_USNE(featureget=True)
+        self.feature_p = get_USNE(featureget=True)
         self.feature_g = GroupFeatureNet(featureget=True)
         self.classifier = ClassifyNet()
 
@@ -242,11 +232,34 @@ class MVIBigNet(nn.Module):
         return x
 
 
-def get_model():
-    net = USNETres()
-    loss = Loss(config['num_hard'])
-    get_pbb = GetPBB(config)
-    return config, net, loss, get_pbb
+def get_USNE(featureget=False):
+    net = USNETres(featureget=featureget)
+
+    checkpoint = torch.load('weihua136.ckpt')
+    net.load_state_dict(checkpoint['state_dict'])
+
+    #######################
+    for param in net.parameters():
+        param.requires_grad = False
+
+    #########################################
+    # 64 4 8 8
+    net.postBlock = nn.Sequential(
+        nn.Conv3d(64, 32, kernel_size=3, stride=2, padding=1),  # 32 2 4 4
+        nn.BatchNorm3d(32),
+        nn.ReLU(inplace=True),
+        nn.Conv3d(32, 8, kernel_size=3, stride=2, padding=1),  # 8 1 2 2
+        nn.BatchNorm3d(8),
+        nn.ReLU(inplace=True),
+
+        # nn.AvgPool3d(kernel_size=(1, 2, 2), stride=1)         # Global Average Pooling ==> -1 8 1 2 2 ==> -1 8
+    )
+    net.classifiy = nn.Sequential(
+        nn.Dropout(0.5),
+        nn.Linear(32, 2),
+        nn.Softmax()
+    )
+    return net
 
 
 def test():
@@ -262,13 +275,37 @@ def test():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     net = USNETres(True)
+    checkpoint = torch.load('136.ckpt')
+    sd = checkpoint['state_dict']
+    # pdb.set_trace()
+
+    s = net.load_state_dict(checkpoint['state_dict'])
+
+    #########################################
+    # 64 4 8 8
+    net.postBlock = nn.Sequential(
+        nn.Conv3d(64, 32, kernel_size=3, stride=2, padding=1),  # 32 2 4 4
+        nn.BatchNorm3d(32),
+        nn.ReLU(inplace=True),
+        nn.Conv3d(32, 8, kernel_size=3, stride=2, padding=1),  # 8 1 2 2
+        nn.BatchNorm3d(8),
+        nn.ReLU(inplace=True),
+
+        # nn.AvgPool3d(kernel_size=(1, 2, 2), stride=1)         # Global Average Pooling ==> -1 8 1 2 2 ==> -1 8
+    )
+    net.classifiy = nn.Sequential(
+        nn.Dropout(0.5),
+        nn.Linear(32, 2),
+        nn.Softmax()
+    )
+
     net = net.to(device)
 
     summary(net, (1, 4, 128, 128))
-    
+
     # net2 = MVIBigNet().to(device)
     # summary(net2, [(1, 16, 256, 256), (1, 16, 256, 256), (1, 16, 256, 256), (39,)])
-    
+
 
 if __name__ == '__main__':
     test()
