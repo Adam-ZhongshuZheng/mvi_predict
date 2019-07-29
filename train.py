@@ -210,7 +210,7 @@ def test(epoch, dataloader, net, optimizer, criterion, mode, vali=True):
         for batch_idx, databook in enumerate(dataloader):
 
             if mode in ['A', 'D', 'P']:
-                sid = databook['sid']
+                sid = databook['id']
                 inputs = databook['img']
                 targets = databook['mvi']
                 inputs = inputs.to(device, dtype=torch.float)
@@ -244,8 +244,8 @@ def test(epoch, dataloader, net, optimizer, criterion, mode, vali=True):
 
             # To get the wrong sample id list
             for i in 1 - predicted.byte().eq(targets):
-                if i == 0 and sid[i] not in wrong_list:
-                    wrong_list.append(sid[i])
+                if int(i) is 0 and sid[int(i)] not in wrong_list:
+                    wrong_list.append(sid[int(i)])
 
             # temp = predicted + targets
             # intersection = (temp == 2).sum().item()
